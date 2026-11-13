@@ -16,9 +16,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_DIRECTORY,
     CONF_LOOKBACK_DAYS,
+    CONF_PULSE_MEDIUM,
     CONF_SCAN_HOURS,
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_PORT,
+    DEFAULT_PULSE_MEDIUM,
     DEFAULT_SCAN_HOURS,
     DOMAIN,
     MANUFACTURER,
@@ -26,6 +28,7 @@ from .const import (
 from .ftp import fetch_new
 from .mbus import parse_ini
 from .model import KIND_CONCENTRATOR, Meter, meters_from_readout
+from .statistics import async_write_statistics
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_REMEMBERED = 2000
@@ -41,14 +44,20 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._processed: list[str] = []
         self.meters: dict[str, Meter] = {}
+        # address -> {ISO local time: counter value}, for the statistics
+        self.history: dict[str, dict[str, float]] = {}
+        self._statistics_written = False
         self.concentrator: str | None = None
 
     async def async_load(self) -> None:
         """Restore what earlier readouts told us."""
         stored = await self._store.async_load() or {}
-        self._processed = stored.get("processed", [])
         self.meters = {address: Meter.from_dict(data)
                        for address, data in stored.get("meters", {}).items()}
+        if "history" in stored:
+            self._processed = stored.get("processed", [])
+            self.history = stored["history"]
+        # Data saved before history was kept: read the recent files again.
         self._register_concentrator()
 
     async def async_remove_store(self) -> None:
@@ -73,12 +82,18 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
                 return dict(self.meters)
             raise UpdateFailed(f"Could not reach the FTP server: {err}") from err
 
+        changed: set[str] = set()
         for name, text in files:
             try:
                 readout = parse_ini(text)
                 for error in readout.errors:
                     _LOGGER.warning("%s: skipped frame %s", name, error)
                 for meter in meters_from_readout(readout):
+                    if meter.history:
+                        self.history.setdefault(meter.address, {}).update(
+                            {when: value for when, value in meter.history})
+                        changed.add(meter.address)
+                        meter.history = []
                     self._merge(meter)
             except Exception:  # one bad file must not block the others
                 _LOGGER.exception("Could not decode %s", name)
@@ -92,7 +107,18 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
                 "processed": self._processed,
                 "meters": {address: meter.as_dict()
                            for address, meter in self.meters.items()},
+                "history": self.history,
             })
+
+        # Everything once after a start (cheap, and repairs a cleared
+        # database), then only the devices with new values.
+        if not self._statistics_written:
+            changed = set(self.history)
+            self._statistics_written = True
+        if changed:
+            async_write_statistics(
+                self.hass, self.meters, self.history, changed,
+                entry.options.get(CONF_PULSE_MEDIUM, DEFAULT_PULSE_MEDIUM))
         return dict(self.meters)
 
     def _merge(self, meter: Meter) -> None:

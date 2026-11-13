@@ -13,9 +13,12 @@ SAMPLE = "10000000_2026-02-20_101602"
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
+def auto_enable_custom_integrations(request):
     """Let Home Assistant load the integration from custom_components."""
-    return
+    if "recorder_mock" in request.fixturenames:
+        # The recorder has to be set up before Home Assistant itself.
+        request.getfixturevalue("recorder_mock")
+    request.getfixturevalue("enable_custom_integrations")
 
 
 @pytest.fixture

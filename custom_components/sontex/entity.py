@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -17,7 +17,7 @@ from homeassistant.const import (
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, PULSE_AUTO, PULSE_GAS
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import SontexCoordinator
 from .model import (
     KIND_ALLOCATOR,
@@ -25,8 +25,9 @@ from .model import (
     KIND_PULSE,
     KIND_REPEATER,
     KIND_WATER,
-    MEDIUM_GAS,
     Meter,
+    counts_gas,
+    device_name,
 )
 
 SENSOR = "sensor"
@@ -67,6 +68,8 @@ _DERIVED = {
                         state_class=SensorStateClass.MEASUREMENT),
     "devices_in_readout": Description("Devices in last readout",
                                       state_class=SensorStateClass.MEASUREMENT),
+    "month_to_date": Description("This month", diagnostic=False),
+    "previous_month": Description("Previous month", diagnostic=False),
     "tamper": _binary("Tamper", BinarySensorDeviceClass.TAMPER),
     "battery_low": _binary("Battery low", BinarySensorDeviceClass.BATTERY),
     "external_alarm": _binary("External alarm", BinarySensorDeviceClass.PROBLEM),
@@ -85,7 +88,7 @@ _TEMPERATURE = {"device_class": SensorDeviceClass.TEMPERATURE,
 _NAMED = {
     "heatcostallocator-0-0-0-0": Description(
         "Consumption", state_class=SensorStateClass.TOTAL_INCREASING, diagnostic=False),
-    "heatcostallocator-0-0-1-0": Description("Consumption at set day", diagnostic=False),
+    "heatcostallocator-0-0-1-0": Description("Consumption at last set day", diagnostic=False),
     "date-0-0-1-0": Description("Set day"),
     "flowtemperature-0-0-0-0": Description(
         "Radiator temperature", diagnostic=False, **_TEMPERATURE),
@@ -93,7 +96,7 @@ _NAMED = {
         "Room temperature", diagnostic=False, **_TEMPERATURE),
     "flowtemperature-0-0-0-1": Description("Maximum radiator temperature", **_TEMPERATURE),
     "flowtemperature-0-0-1-1": Description(
-        "Maximum radiator temperature at set day", **_TEMPERATURE),
+        "Maximum radiator temperature of previous period", **_TEMPERATURE),
     "durationoftariff-0-1-0-0": Description(
         "Fraud duration", device_class=SensorDeviceClass.DURATION,
         unit=UnitOfTime.MINUTES),
@@ -106,6 +109,23 @@ _NAMED = {
     "numberoftimesthemeterwasstopped-0-0-0-0": Description("Stop count"),
     "manufacturererrorflags-0-0-0-0": Description("Error code"),
 }
+_MONTH_FIGURES = {"month_to_date", "previous_month"}
+_MINUTES = {"device_class": SensorDeviceClass.DURATION, "unit": UnitOfTime.MINUTES}
+_LITRES = {"unit": UnitOfVolume.LITERS}
+
+# Names Sontex's own software uses, where they differ by kind of device.
+_NAMED_BY_KIND = {
+    (KIND_ALLOCATOR, "date-0-1-0-0"): Description("Last case opening"),
+    (KIND_ALLOCATOR, "date-0-2-0-0"): Description("Commissioning date"),
+    (KIND_WATER, "date-0-1-0-0"): Description("Last fraud date"),
+    (KIND_WATER, "durationoftariff-0-2-0-0"): Description("Magnet tamper duration", **_MINUTES),
+    (KIND_WATER, "date-0-2-0-0"): Description("Last magnet tamper date"),
+    (KIND_WATER, "volume-0-0-0-0#2"): Description("Volume remainder", **_LITRES),
+    (KIND_WATER, "volume_perinputpulseonchannel0-0-0-0-0"): Description("Pulse factor", unit="L/pulse"),
+    (KIND_WATER, "numberoftimesthemeterwasstopped-0-0-0-0"): Description("Reset count"),
+    (KIND_PULSE, "volume_perinputpulseonchannel0-1-0-0-0"): Description("Pulse factor", unit="L/pulse"),
+    (KIND_PULSE, "numberoftimesthemeterwasstopped-0-0-0-0"): Description("Reset count"),
+}
 _MAIN_VOLUMES = {"volume-0-0-0-0", "volume-1-0-0-0"}
 _OFF_BY_DEFAULT = {"StateOfParameterActivation", "DeviceAccessRightLevel",
                    "AccessNumber", "WakeupCount"}
@@ -114,19 +134,18 @@ _DURATION_UNITS = {"s": UnitOfTime.SECONDS, "min": UnitOfTime.MINUTES,
 _FUNCTIONS = {1: "maximum", 2: "minimum", 3: "during error"}
 
 
-def counts_gas(meter: Meter, pulse_medium: str) -> bool:
-    """Whether a pulse adapter is counting gas rather than water."""
-    if meter.kind != KIND_PULSE:
-        return False
-    if pulse_medium == PULSE_AUTO:
-        return meter.channel_medium == MEDIUM_GAS
-    return pulse_medium == PULSE_GAS
-
-
 def describe(meter: Meter, key: str, point: dict, pulse_medium: str) -> Description:
     """Decide the name, type and unit of one value of one device."""
     if point["name"] is None:
-        return _DERIVED.get(key, Description(key.replace("_", " ").capitalize()))
+        description = _DERIVED.get(key, Description(key.replace("_", " ").capitalize()))
+        if key in _MONTH_FIGURES and point["unit"] == "m3":
+            gas = counts_gas(meter, pulse_medium)
+            description = replace(
+                description, unit=UnitOfVolume.CUBIC_METERS,
+                device_class=SensorDeviceClass.GAS if gas else SensorDeviceClass.WATER)
+        return description
+    if (meter.kind, key) in _NAMED_BY_KIND:
+        return _NAMED_BY_KIND[meter.kind, key]
     if key in _NAMED:
         return _NAMED[key]
 
@@ -173,22 +192,6 @@ def _readable_name(key: str, record_name: str) -> str:
     if repeat:
         extra.append(repeat)
     return f"{name} ({', '.join(extra)})" if extra else name
-
-
-def device_name(meter: Meter, pulse_medium: str) -> str:
-    if meter.kind == KIND_ALLOCATOR:
-        label = "Heat allocator"
-    elif meter.kind == KIND_WATER:
-        label = "Water meter"
-    elif meter.kind == KIND_PULSE:
-        label = "Gas meter" if counts_gas(meter, pulse_medium) else "Water meter"
-    elif meter.kind == KIND_REPEATER:
-        label = "Repeater"
-    elif meter.kind == KIND_CONCENTRATOR:
-        label = "Concentrator"
-    else:
-        label = "Device"
-    return f"{label} {meter.serial}"
 
 
 class SontexEntity(CoordinatorEntity[SontexCoordinator]):

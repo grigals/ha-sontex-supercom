@@ -12,20 +12,32 @@ Each radio device becomes a Home Assistant device you can assign to an area:
 
 | In the readout | Device in Home Assistant | Main sensors |
 | --- | --- | --- |
-| Heat cost allocator (566) | Heat allocator *serial* | Consumption, consumption at set day, radiator temperature, room temperature |
-| Water meter radio module (581) | Water meter *serial* | Volume |
-| Pulse adapter (541), shown as "Other" | Water meter *serial* (or gas, see Options) | Volume |
+| Heat cost allocator (566) | Heat allocator *serial* | Consumption, this month, previous month, consumption at last set day, radiator temperature, room temperature |
+| Water meter radio module (581) | Water meter *serial* | Volume, this month, previous month |
+| Pulse adapter (541), shown as "Other" | Water meter *serial* (or gas, see Options) | Volume, this month, previous month |
 | Repeater (656) | Repeater *serial* | diagnostics only |
 | Concentrator (646) | Concentrator *serial* | Last reading, devices in last readout |
 
 Under each device, as diagnostics: tamper, battery low, battery cut, external alarm, fault and error flags, signal strength, battery operating time, last reading time, fraud duration and date, maximum temperatures, pulse value, fabrication number, firmware version and the remaining decoded fields.
 
-Not included yet:
-
-- **History.** Monthly values stored inside the meters, and older readout files, are not imported into Home Assistant statistics. Sensors show the latest reading only.
-- **Concentrator settings.** Its readout also holds its network configuration, including logins. Those are deliberately never turned into entities.
+The concentrator's readout also holds its network configuration, including logins. Those are deliberately never turned into entities.
 
 Product numbers (566, 581, 541, 656) are inferred from the files Sontex Tools646 produces for this site, not read from the devices.
+
+## Reading times and history
+
+Readouts arrive a few times a month, and a file can reach the FTP server some time after the meters were read. Home Assistant stamps a sensor value with the moment it arrives, not the moment it was measured, so the normal history graph of a sensor can be late by hours or days. The **Last reading** sensor of each device shows when the value was really taken.
+
+To give you correct figures regardless of when a file arrives, the integration uses what the meters store themselves:
+
+- **This month** and **Previous month** sensors are calculated from the meter's own month-start values, so they do not depend on upload or fetch times.
+- **Long-term statistics.** Each meter gets a statistic named like *Water meter 12345678 volume* or *Heat allocator 12345678 consumption*. Every reading is filed at the time the meter took it, and the meter's stored month-start values are filed at the month boundaries. Use these in the **Energy dashboard** (water or gas consumption) and in **Statistics graph** cards; monthly totals there are exact.
+
+The meters carry their own past: heat allocators the first of each of the last 17 months, water meters and pulse adapters the last 15 months. That history appears in the statistics as soon as the first readout is processed.
+
+Heat allocators start again from zero at their yearly set day. The statistic keeps counting upwards across that reset.
+
+To also import older readout files from the FTP server, raise **Ignore readout files older than (days)** in the options. Older files only add points to the statistics; the sensors keep showing the newest reading.
 
 ## Install
 

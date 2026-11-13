@@ -29,14 +29,22 @@ The laptop job (a scheduled PowerShell script that runs Tools646) is untouched a
 ## Verification
 
 - Decoder: every record's key, value text and unit matches Tools646 for the 69 meters in each fixture (`tests/test_decoder.py`). Earlier, six full sample pairs matched (19,614 records).
-- Integration: config flow, device and entity creation, pulse-medium option, restart and FTP-outage behaviour run in HA's test harness (`pytest`, needs `pytest-homeassistant-custom-component`; HA 2026.2.3 was used).
+- Integration: config flow, device and entity creation, pulse-medium option, restart and FTP-outage behaviour, month sensors and statistics (against the real recorder) run in HA's test harness (`pytest`, needs `pytest-homeassistant-custom-component`; HA 2026.2.3 was used).
 - The FTP code was run read-only against the real server: 61 files listed, the five from the last 30 days decoded with no errors and no unnamed fields.
-- Not done: installing it in the real Home Assistant.
+- Installed through HACS in the real Home Assistant on 2026-11-13 (version 0.1.1): devices loaded.
+
+## History and statistics
+
+- Sensor states cannot be backdated in Home Assistant, so each meter also gets an external statistic (`sontex:<kind>_<serial>_volume` or `_consumption`) written with true timestamps. External statistics were chosen over the sensors' own statistics because the recorder compiles those itself from state changes, and rewriting them risks double counting.
+- Points come from each readout: the reading at its own time, plus the values the meter stored. Water meters and pulse adapters: storage 1 to 15 are "Monthly value -1 to -15", where -1 is the value at 00:00 on the 1st of the current month (confirmed across 61 readouts: the values shift on the 1st). Heat allocators: dated month-start values from the compact profile, and the value at the yearly set day, after which the counter restarts at zero.
+- A value is filed under the hour that ends at or after it was taken, so month-start values land in the last hour of the previous month and monthly sums are exact.
+- All points are kept in the integration's store and the statistics of a meter are rewritten in full whenever it gets new points, so readouts may arrive in any order.
+- Checked on the 61 real readouts: no conflicting values for the same moment, water volumes never decrease, allocators drop only at the set day.
 
 ## Not built yet
 
-- Importing history (meter-internal monthly values, older readout files) into HA long-term statistics.
 - Feeding the Google Sheets from HA.
+- Statistics for temperatures.
 
 ## Loose ends from the Google phase
 

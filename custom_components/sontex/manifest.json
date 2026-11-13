@@ -2,11 +2,12 @@
   "domain": "sontex",
   "name": "Sontex Supercom",
   "codeowners": ["@grigals"],
+  "after_dependencies": ["recorder"],
   "config_flow": true,
   "documentation": "https://github.com/grigals/ha-sontex-supercom",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/grigals/ha-sontex-supercom/issues",
   "requirements": [],
-  "version": "0.1.1"
+  "version": "0.2.0"
 }
