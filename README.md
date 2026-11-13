@@ -4,6 +4,8 @@ A Home Assistant integration for Sontex radio meters read by a **Supercom 646 co
 
 The FTP server is only listed and read. Nothing is deleted or changed there.
 
+> **Unofficial.** This project is not made, endorsed or supported by Sontex SA. Use it at your own risk. See [Disclaimer](#disclaimer).
+
 ## What you get
 
 Each radio device becomes a Home Assistant device you can assign to an area:
@@ -64,3 +66,18 @@ pytest
 ```
 
 `tests/fixtures` holds three real readouts with the concentrator and repeaters removed and the serial numbers replaced by made-up ones, next to the XML Sontex Tools646 produced from the same files. The decoder is checked record by record against that XML.
+
+## Disclaimer
+
+- **Not affiliated with Sontex.** This is an independent, community project. It is not made, endorsed, certified or supported by Sontex SA. "Sontex" and "Supercom" are trademarks of their owner and are used here only to say which devices the integration works with. Please do not contact Sontex about problems with it.
+- **No warranty, use at your own risk.** The software is provided as is, without warranty of any kind. The author is not liable for any damage, loss or cost arising from its use. See [LICENSE](LICENSE).
+- **Not for billing.** The file format was worked out by comparing readouts with the output of Sontex's own software at a single site. Values may be wrong, incomplete or misinterpreted, especially for device models and firmware versions that were not available for testing. Do not use the readings for billing, cost allocation, legal metering or disputes; the meter and the official readout are the reference.
+- **No effect on your devices.** The integration never talks to the meters or the concentrator and cannot change their configuration. It only reads files from the FTP server and never writes, renames or deletes anything there. Even so, prefer an FTP account that has read-only access.
+- **Your data and credentials.** The FTP login is stored in Home Assistant's configuration, as for any integration. Standard FTP sends the login and the readouts unencrypted, so think about the network path between Home Assistant and the server.
+- **Permission.** Make sure you are entitled to access the readout data. In a shared building the files can contain other households' consumption, which is personal data under laws such as the GDPR.
+- **Readouts contain secrets.** The concentrator's part of a readout file includes its network configuration and logins. The integration does not expose them, but do not share raw readout files publicly, for example in a bug report.
+- **May break.** Sontex can change the format in a firmware update, and Home Assistant updates can require changes to the integration. This is a pre-release.
+
+## License
+
+[MIT](LICENSE)
