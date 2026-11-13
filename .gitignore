@@ -1,0 +1,5 @@
+useful/
+__pycache__/
+secrets.json
+.state/
+.pytest_cache/

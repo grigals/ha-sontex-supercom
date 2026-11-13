@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sontex Supercom",
+        "description": "The FTP server your Supercom 646 concentrator uploads its readouts to. The server is only read; nothing is deleted or changed there.",
+        "data": {
+          "host": "FTP server",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "directory": "Folder with the readout files"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the FTP server.",
+      "invalid_auth": "The FTP server refused the username or password.",
+      "bad_directory": "The folder could not be opened on the FTP server."
+    },
+    "abort": {
+      "already_configured": "This FTP folder is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "pulse_medium": "Pulse adapters (shown as \"Other\" in readouts) count",
+          "scan_interval_hours": "Check for new readouts every (hours)",
+          "lookback_days": "Ignore readout files older than (days)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "pulse_medium": {
+      "options": {
+        "auto": "What the adapter reports (water if it says nothing)",
+        "water": "Water",
+        "gas": "Gas"
+      }
+    }
+  }
+}
