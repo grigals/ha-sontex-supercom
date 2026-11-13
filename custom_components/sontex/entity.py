@@ -222,7 +222,11 @@ class SontexEntity(CoordinatorEntity[SontexCoordinator]):
         )
         concentrator = coordinator.concentrator
         if concentrator and concentrator != meter.address:
-            self._attr_device_info["via_device"] = (DOMAIN, concentrator)
+            # Newer Home Assistant wants the parent's device id.
+            if "via_device_id" in DeviceInfo.__annotations__ and coordinator.concentrator_device_id:
+                self._attr_device_info["via_device_id"] = coordinator.concentrator_device_id
+            else:
+                self._attr_device_info["via_device"] = (DOMAIN, concentrator)
 
     @property
     def _value(self):

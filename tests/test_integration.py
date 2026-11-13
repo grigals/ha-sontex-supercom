@@ -111,11 +111,12 @@ async def test_devices_and_entities(hass, sample_text):
 
 
 async def test_pulse_adapter_can_be_set_to_gas(hass, sample_text):
-    await _setup(hass, sample_text, {CONF_PULSE_MEDIUM: PULSE_GAS,
+    entry, _ = await _setup(hass, sample_text, {CONF_PULSE_MEDIUM: PULSE_GAS,
                                      CONF_SCAN_HOURS: 6, CONF_LOOKBACK_DAYS: 30})
     state = hass.states.get(_entity_id(hass, "01000010EE4D0A00", "volume-1-0-0-0"))
     assert state.attributes["device_class"] == "gas"
-    names = {device.name for device in dr.async_get(hass).devices.values()}
+    names = {device.name for device in dr.async_entries_for_config_entry(
+        dr.async_get(hass), entry.entry_id)}
     assert "Gas meter 10000001" in names
 
 
@@ -136,3 +137,60 @@ async def test_handled_files_are_not_fetched_again(hass, sample_text):
         await entry.runtime_data.async_refresh()
     already_done = fetch.call_args.args[5]
     assert already_done == {f"{SAMPLE}.ini"}
+
+
+def _with_new_version(text: str, serial_le_hex: str) -> str:
+    """The readout as it looks after one device got a firmware update."""
+    import base64
+
+    lines = []
+    for line in text.splitlines():
+        key, _, encoded = line.partition("=")
+        if key.startswith("d") and "-" in key:
+            raw = bytearray(base64.b64decode(encoded))
+            if raw[7:11].hex() == serial_le_hex:
+                raw[13] += 1
+                raw[-2] = sum(raw[4:-2]) & 0xFF
+                line = f"{key}={base64.b64encode(bytes(raw)).decode()}"
+        lines.append(line)
+    return chr(10).join(lines)
+
+
+async def test_firmware_update_does_not_create_a_second_device(hass, sample_text):
+    entry, _ = await _setup(hass, sample_text)
+    updated = _with_new_version(sample_text, "74000010")
+    with patch(FETCH, return_value=[("later.ini", updated)]):
+        await entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert len(devices) == 69
+    assert [d.name for d in devices].count("Water meter 10000074") == 1
+
+
+async def test_devices_stored_twice_are_merged(hass, hass_storage, sample_text):
+    entry, _ = await _setup(hass, sample_text)
+    await hass.config_entries.async_unload(entry.entry_id)
+
+    # What a release without the fix left behind: the same meter under two versions.
+    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]
+    old, new = "74000010EE4D1607", "74000010EE4D1707"
+    stale = dict(stored["meters"][old], address=old, read_at="2025-01-01T00:00:00")
+    stored["meters"][new] = dict(stored["meters"][old], address=new, version=0x17)
+    stored["meters"][old] = stale
+    stored["history"][new] = {"2026-02-20T10:08:00": 41.708}
+    stored["history"][old] = {"2025-01-01T00:00:00": 40.0}
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, new)}, name="duplicate")
+
+    with patch(FETCH, return_value=[]):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert old not in coordinator.meters and new in coordinator.meters
+    assert coordinator.history[new] == {"2025-01-01T00:00:00": 40.0,
+                                        "2026-02-20T10:08:00": 41.708}
+    identifiers = set().union(*(
+        device.identifiers for device in dr.async_entries_for_config_entry(
+            dr.async_get(hass), entry.entry_id)))
+    assert (DOMAIN, old) not in identifiers
+    assert (DOMAIN, new) in identifiers

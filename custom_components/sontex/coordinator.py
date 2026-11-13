@@ -47,7 +47,10 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
         # address -> {ISO local time: counter value}, for the statistics
         self.history: dict[str, dict[str, float]] = {}
         self._statistics_written = False
+        # identity -> the address a device was first seen under
+        self._addresses: dict[str, str] = {}
         self.concentrator: str | None = None
+        self.concentrator_device_id: str | None = None
 
     async def async_load(self) -> None:
         """Restore what earlier readouts told us."""
@@ -58,7 +61,29 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
             self._processed = stored.get("processed", [])
             self.history = stored["history"]
         # Data saved before history was kept: read the recent files again.
+        self._merge_duplicates()
         self._register_concentrator()
+
+    def _merge_duplicates(self) -> None:
+        """Fold devices stored twice, under an old and a new version, into one.
+
+        Earlier releases treated a device as new after a firmware update.
+        """
+        registry = dr.async_get(self.hass)
+        newest_first = sorted(self.meters.values(),
+                              key=lambda meter: meter.read_at or "", reverse=True)
+        for meter in newest_first:
+            kept = self._addresses.setdefault(_identity(meter.address), meter.address)
+            if kept == meter.address:
+                continue
+            _LOGGER.info("Merging duplicate device %s into %s", meter.address, kept)
+            older = self.history.pop(meter.address, {})
+            self.history[kept] = {**older, **self.history.get(kept, {})}
+            del self.meters[meter.address]
+            for device in dr.async_entries_for_config_entry(
+                    registry, self.config_entry.entry_id):
+                if (DOMAIN, meter.address) in device.identifiers:
+                    registry.async_remove_device(device.id)
 
     async def async_remove_store(self) -> None:
         await self._store.async_remove()
@@ -89,6 +114,10 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
                 for error in readout.errors:
                     _LOGGER.warning("%s: skipped frame %s", name, error)
                 for meter in meters_from_readout(readout):
+                    # A firmware update changes the version in the address;
+                    # the device stays the one it was first seen as.
+                    meter.address = self._addresses.setdefault(
+                        _identity(meter.address), meter.address)
                     if meter.history:
                         self.history.setdefault(meter.address, {}).update(
                             {when: value for when, value in meter.history})
@@ -133,10 +162,16 @@ class SontexCoordinator(DataUpdateCoordinator[dict[str, Meter]]):
         for meter in self.meters.values():
             if meter.kind == KIND_CONCENTRATOR:
                 self.concentrator = meter.address
-                dr.async_get(self.hass).async_get_or_create(
+                device = dr.async_get(self.hass).async_get_or_create(
                     config_entry_id=self.config_entry.entry_id,
                     identifiers={(DOMAIN, meter.address)},
                     manufacturer=MANUFACTURER,
                     name=f"Concentrator {meter.serial}",
                 )
+                self.concentrator_device_id = device.id
                 return
+
+
+def _identity(address: str) -> str:
+    """The address without its version byte: serial, manufacturer, medium."""
+    return address[:12] + address[14:]
