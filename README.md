@@ -88,7 +88,7 @@ pytest
 - **Your data and credentials.** The FTP login is stored in Home Assistant's configuration, as for any integration. Standard FTP sends the login and the readouts unencrypted, so think about the network path between Home Assistant and the server.
 - **Permission.** Make sure you are entitled to access the readout data. In a shared building the files can contain other households' consumption, which is personal data under laws such as the GDPR.
 - **Readouts contain secrets.** The concentrator's part of a readout file includes its network configuration and logins. The integration does not expose them, but do not share raw readout files publicly, for example in a bug report.
-- **May break.** Sontex can change the format in a firmware update, and Home Assistant updates can require changes to the integration. This is a pre-release.
+- **May break.** Sontex can change the format in a firmware update, and Home Assistant updates can require changes to the integration. It has only been used at one site so far.
 
 ## License
 
